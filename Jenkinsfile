@@ -1,35 +1,40 @@
-pipeline{
+pipeline {
+    agent any
 
-agent any
+    stages {
+        stage('Build Application') {
+            steps {
+                script {
+                    bat 'mvn clean install'
+                }
+            }
+        }
+        stage('Deploy to Docker') {
+            steps {
+                script {
+                    // Get the JAR file path using PowerShell on Windows
+                    def jarPath = bat(script: 'powershell -Command "Get-ChildItem target\\*.jar | Select-Object -First 1 | ForEach-Object { $_.FullName }"', returnStdout: true).trim()
+                    jarPath = jarPath.split("\n").last().trim() // Extract the actual path from the command output
 
-stages {
+                    echo "Verified JAR file path: ${jarPath}"
 
-stage('Build Application') {
+                    def containerName = env.JOB_NAME
+                    echo "Docker container name: ${containerName}"
 
-steps {
+                    // Stop and remove existing container
+                    bat "docker stop ${containerName} || exit 0"
+                    bat "docker rm ${containerName} || exit 0"
 
-sh 'mvn clean install'
+                    // Run the Docker container
+                    bat "docker run -d --name ${containerName} -p 8082:8082 dockermule"
 
-}
-}
-stage('Deploy CloudHubs') {
+                    // Print a message indicating that the JAR file will be copied
+                    echo "Copying JAR file to Docker container: ${jarPath}"
 
-environment {
-
-ANYPOINT_CREDENTIALS = credentials('anypoint.hrms')
-
-}
-
-steps {
-
-echo 'Deploying mule project due to the latest code commit…'
-
-echo 'Deploying to the configured environment….'
-
-sh 'mvn clean deploy -DmuleDeploy  -Dusername=${ANYPOINT_CREDENTIALS_USR} -Dpassword=${ANYPOINT_CREDENTIALS_PSW} -DworkerType=Micro -Dworkers=1 -Denv=dev -Dsecure.key=******'
-
-}
-
-}
-}
+                    // Copy the JAR file to the Docker container
+                    bat "docker cp \"${jarPath}\" ${containerName}:/opt/mule/apps"
+                }
+            }
+        }
+    }
 }
